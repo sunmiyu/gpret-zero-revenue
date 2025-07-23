@@ -1,0 +1,127 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+.nyc_output
+
+# Hardhat files
+cache/
+artifacts/
+typechain-types/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Temporary folders
+tmp/
+temp/
+
+# Build outputs
+dist/
+build/
+
+# Ethereum/Blockchain specific
+.openzeppelin/
+deployments/
+.etherlime-store/
+
+# Gas reporter output
+gas-report.txt
+
+# Contract size report
+contract-size-report.txt
+
+# Solidity coverage
+coverage.json
+coverageEnv/
+
+# Compiled contracts
+contracts/flattened/
+
+# Local development
+.cache/
+
+# Package manager
+package-lock.json
+yarn.lock
+
+# Python (if using Python scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Documentation build
+docs/_build/
+
+# Test results
+test-results/
+*.xml
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets and keys
+*.pem
+*.key
+secrets/
+
+# Frontend build (future)
+frontend/build/
+frontend/dist/
+frontend/.next/
+frontend/out/
+
+# Local configuration
+config/local.json
+local.config.js
