@@ -1,83 +1,21 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IGPRET.sol";
 
 /**
  * @title GPRET (Global Prime Real Estate Token)
- * @dev Zero Revenue ERC20 Token for Real Estate Price Tracking
- * 
- * Key Features:
- * - Tracks global prime real estate prices
- * - Zero revenue model (no fees, no profits)
- * - Community governance
- * - Educational/demonstration purpose only
- * 
- * IMPORTANT: This token generates ZERO revenue and has no profit mechanism.
- * It is purely for educational and community purposes.
+ * @dev Zero Revenue DeFi token tracking global real estate prices
+ * @notice This contract implements a zero-profit structure for educational purposes
  */
 contract GPRET is ERC20, ERC20Burnable, Pausable, Ownable, ReentrancyGuard, IGPRET {
-    
-    // ============ State Variables ============
-    
-    /// @dev Total supply is fixed at 1 billion tokens
-    uint256 public constant TOTAL_SUPPLY = 1_000_000_000 * 10**18;
-    
-    /// @dev Real estate price index (scaled by 1e18)
-    uint256 public realEstatePriceIndex;
-    
-    /// @dev Last update timestamp
-    uint256 public lastPriceUpdate;
-    
-    /// @dev Minimum time between price updates (24 hours)
-    uint256 public constant MIN_UPDATE_INTERVAL = 24 hours;
-    
-    /// @dev Oracle address authorized to update prices
-    address public priceOracle;
-    
-    /// @dev Governance proposal counter
-    uint256 public proposalCounter;
-    
-    /// @dev City data structure
-    struct CityData {
-        string name;
-        uint256 priceIndex;
-        uint256 weight;
-        bool isActive;
-    }
-    
-    /// @dev Governance proposal structure
-    struct Proposal {
-        uint256 id;
-        string description;
-        uint256 forVotes;
-        uint256 againstVotes;
-        uint256 startTime;
-        uint256 endTime;
-        bool executed;
-        address proposer;
-    }
-    
-    /// @dev Mapping of city ID to city data
-    mapping(uint256 => CityData) public cities;
-    
-    /// @dev Array of active city IDs
-    uint256[] public activeCityIds;
-    
-    /// @dev Mapping of proposal ID to proposal data
-    mapping(uint256 => Proposal) public proposals;
-    
-    /// @dev Mapping of user votes on proposals
-    mapping(uint256 => mapping(address => bool)) public hasVoted;
-    mapping(uint256 => mapping(address => bool)) public voteChoice; // true = for, false = against
-    
-    // ============ Events ============
-    
+
+     // Events - 이 부분을 추가해야 합니다!
     event PriceIndexUpdated(uint256 indexed newIndex, uint256 timestamp);
     event OracleUpdated(address indexed oldOracle, address indexed newOracle);
     event CityAdded(uint256 indexed cityId, string name, uint256 weight);
@@ -86,292 +24,310 @@ contract GPRET is ERC20, ERC20Burnable, Pausable, Ownable, ReentrancyGuard, IGPR
     event VoteCast(uint256 indexed proposalId, address indexed voter, bool support, uint256 weight);
     event ProposalExecuted(uint256 indexed proposalId);
     
-    // ============ Modifiers ============
+    // Constants
+    uint256 public constant TOTAL_SUPPLY = 1_000_000_000 * 10**18; // 1 billion tokens
+    uint256 public constant VOTING_PERIOD = 7 days;
+    uint256 public constant PROPOSAL_THRESHOLD = 1000 * 10**18; // 1000 tokens to create proposal
+    uint256 public constant MIN_VOTING_DELAY = 1 days;
     
-    modifier onlyOracle() {
-        require(msg.sender == priceOracle, "GPRET: Only oracle can call");
-        _;
+    // State variables
+    mapping(uint256 => City) public cities;
+    uint256 public cityCount;
+    uint256 public globalPriceIndex;
+    address public oracleAddress;
+    uint256 public lastUpdateTimestamp;
+    
+    // Governance
+    mapping(uint256 => Proposal) public proposals;
+    mapping(uint256 => mapping(address => bool)) public hasVoted;
+    mapping(uint256 => mapping(address => uint256)) public votingWeight;
+    uint256 public proposalCount;
+    
+    // Zero Revenue Validation
+    mapping(string => bool) public zeroRevenueValidation;
+    
+    // Structs
+    struct City {
+        string name;
+        uint256 priceIndex;
+        uint256 weight;
+        bool isActive;
+        uint256 lastUpdated;
     }
     
-    modifier validProposal(uint256 proposalId) {
-        require(proposalId <= proposalCounter, "GPRET: Invalid proposal ID");
-        _;
+    struct Proposal {
+        uint256 id;
+        address proposer;
+        string description;
+        uint256 forVotes;
+        uint256 againstVotes;
+        uint256 startTime;
+        uint256 endTime;
+        bool executed;
+        bool passed;
+        mapping(address => bool) hasVoted;
     }
     
-    // ============ Constructor ============
-    
-    constructor() ERC20("Global Prime Real Estate Token", "GPRET") {
-        // Mint total supply to deployer
-        _mint(msg.sender, TOTAL_SUPPLY);
+    // Constructor with initialOwner for OpenZeppelin v5
+    constructor(address initialOwner) 
+        ERC20("Global Prime Real Estate Token", "GPRET") 
+        Ownable(initialOwner)
+    {
+        _mint(initialOwner, TOTAL_SUPPLY);
         
-        // Initialize with current timestamp
-        lastPriceUpdate = block.timestamp;
-        realEstatePriceIndex = 1000 * 10**18; // Start at index 1000
+        // Initialize zero revenue validation
+        zeroRevenueValidation["NO_FEES"] = true;
+        zeroRevenueValidation["NO_PROFITS"] = true;
+        zeroRevenueValidation["NO_REWARDS"] = true;
+        zeroRevenueValidation["EDUCATIONAL_PURPOSE"] = true;
         
-        // Initialize default cities
+        // Initialize with 10 major global cities
         _initializeCities();
         
-        emit PriceIndexUpdated(realEstatePriceIndex, block.timestamp);
+        globalPriceIndex = 1000000; // Base index: 1,000,000
+        lastUpdateTimestamp = block.timestamp;
     }
     
-    // ============ Oracle Functions ============
-    
-    /**
-     * @dev Updates the real estate price index
-     * @param newIndex New price index value
-     */
-    function updatePriceIndex(uint256 newIndex) external onlyOracle nonReentrant {
-        require(
-            block.timestamp >= lastPriceUpdate + MIN_UPDATE_INTERVAL,
-            "GPRET: Update too frequent"
-        );
-        require(newIndex > 0, "GPRET: Invalid price index");
-        
-        realEstatePriceIndex = newIndex;
-        lastPriceUpdate = block.timestamp;
-        
-        emit PriceIndexUpdated(newIndex, block.timestamp);
+    // Initialize cities with weights
+    function _initializeCities() private {
+        _addCity("New York", 200000); // 20% weight
+        _addCity("London", 150000);   // 15% weight
+        _addCity("Tokyo", 120000);    // 12% weight
+        _addCity("Hong Kong", 100000); // 10% weight
+        _addCity("Singapore", 80000);  // 8% weight
+        _addCity("Sydney", 80000);     // 8% weight
+        _addCity("Toronto", 70000);    // 7% weight
+        _addCity("Dubai", 70000);      // 7% weight
+        _addCity("Paris", 70000);      // 7% weight
+        _addCity("Frankfurt", 60000);  // 6% weight
     }
     
-    /**
-     * @dev Updates individual city price data
-     * @param cityId ID of the city to update
-     * @param newPriceIndex New price index for the city
-     */
-    function updateCityPrice(uint256 cityId, uint256 newPriceIndex) 
+    function _addCity(string memory _name, uint256 _weight) private {
+        cities[cityCount] = City({
+            name: _name,
+            priceIndex: 1000000, // Base index
+            weight: _weight,
+            isActive: true,
+            lastUpdated: block.timestamp
+        });
+        
+        emit CityAdded(cityCount, _name, _weight);
+        cityCount++;
+    }
+    
+    // Oracle Functions
+    function setOracleAddress(address _oracle) external onlyOwner {
+        require(_oracle != address(0), "Invalid oracle address");
+        address oldOracle = oracleAddress;
+        oracleAddress = _oracle;
+        emit OracleUpdated(oldOracle, _oracle);
+    }
+    
+    function updateCityPrice(uint256 _cityId, uint256 _newPriceIndex) 
         external 
-        onlyOracle 
         nonReentrant 
     {
-        require(cities[cityId].isActive, "GPRET: City not active");
-        require(newPriceIndex > 0, "GPRET: Invalid price index");
+        require(msg.sender == oracleAddress, "Only oracle can update prices");
+        require(_cityId < cityCount, "Invalid city ID");
+        require(cities[_cityId].isActive, "City not active");
+        require(_newPriceIndex > 0, "Invalid price index");
         
-        cities[cityId].priceIndex = newPriceIndex;
+        cities[_cityId].priceIndex = _newPriceIndex;
+        cities[_cityId].lastUpdated = block.timestamp;
         
-        emit CityUpdated(cityId, newPriceIndex);
+        _updateGlobalIndex();
+        
+        emit CityUpdated(_cityId, _newPriceIndex);
     }
     
-    /**
-     * @dev Sets the oracle address
-     * @param newOracle New oracle address
-     */
-    function setOracle(address newOracle) external onlyOwner {
-        require(newOracle != address(0), "GPRET: Invalid oracle address");
+    function _updateGlobalIndex() private {
+        uint256 newIndex = 0;
+        uint256 totalWeight = 0;
         
-        address oldOracle = priceOracle;
-        priceOracle = newOracle;
+        for (uint256 i = 0; i < cityCount; i++) {
+            if (cities[i].isActive) {
+                newIndex += cities[i].priceIndex * cities[i].weight;
+                totalWeight += cities[i].weight;
+            }
+        }
         
-        emit OracleUpdated(oldOracle, newOracle);
+        if (totalWeight > 0) {
+            globalPriceIndex = newIndex / totalWeight;
+            lastUpdateTimestamp = block.timestamp;
+            emit PriceIndexUpdated(globalPriceIndex, block.timestamp);
+        }
     }
     
-    // ============ Governance Functions ============
-    
-    /**
-     * @dev Creates a new governance proposal
-     * @param description Description of the proposal
-     * @param votingPeriod Voting period in seconds
-     */
-    function createProposal(string memory description, uint256 votingPeriod) 
+    // Governance Functions
+    function createProposal(string memory _description) 
         external 
         returns (uint256) 
     {
-        require(balanceOf(msg.sender) >= TOTAL_SUPPLY / 1000, "GPRET: Insufficient tokens"); // 0.1% minimum
-        require(bytes(description).length > 0, "GPRET: Empty description");
-        require(votingPeriod >= 1 days && votingPeriod <= 30 days, "GPRET: Invalid voting period");
+        require(balanceOf(msg.sender) >= PROPOSAL_THRESHOLD, "Insufficient tokens");
+        require(bytes(_description).length > 0, "Empty description");
         
-        proposalCounter++;
-        
-        proposals[proposalCounter] = Proposal({
-            id: proposalCounter,
-            description: description,
-            forVotes: 0,
-            againstVotes: 0,
-            startTime: block.timestamp,
-            endTime: block.timestamp + votingPeriod,
-            executed: false,
-            proposer: msg.sender
-        });
-        
-        emit ProposalCreated(proposalCounter, msg.sender, description);
-        
-        return proposalCounter;
-    }
-    
-    /**
-     * @dev Casts a vote on a proposal
-     * @param proposalId ID of the proposal
-     * @param support True for "for", false for "against"
-     */
-    function vote(uint256 proposalId, bool support) 
-        external 
-        validProposal(proposalId) 
-        nonReentrant 
-    {
+        uint256 proposalId = proposalCount++;
         Proposal storage proposal = proposals[proposalId];
         
-        require(block.timestamp >= proposal.startTime, "GPRET: Voting not started");
-        require(block.timestamp <= proposal.endTime, "GPRET: Voting ended");
-        require(!hasVoted[proposalId][msg.sender], "GPRET: Already voted");
+        proposal.id = proposalId;
+        proposal.proposer = msg.sender;
+        proposal.description = _description;
+        proposal.startTime = block.timestamp + MIN_VOTING_DELAY;
+        proposal.endTime = proposal.startTime + VOTING_PERIOD;
+        proposal.executed = false;
+        proposal.passed = false;
         
-        uint256 voterBalance = balanceOf(msg.sender);
-        require(voterBalance > 0, "GPRET: No voting power");
+        emit ProposalCreated(proposalId, msg.sender, _description);
+        return proposalId;
+    }
+    
+    function vote(uint256 _proposalId, bool _support) external {
+        require(_proposalId < proposalCount, "Invalid proposal");
+        Proposal storage proposal = proposals[_proposalId];
         
-        hasVoted[proposalId][msg.sender] = true;
-        voteChoice[proposalId][msg.sender] = support;
+        require(block.timestamp >= proposal.startTime, "Voting not started");
+        require(block.timestamp <= proposal.endTime, "Voting ended");
+        require(!proposal.hasVoted[msg.sender], "Already voted");
+        require(!proposal.executed, "Proposal executed");
         
-        if (support) {
-            proposal.forVotes += voterBalance;
+        uint256 weight = balanceOf(msg.sender);
+        require(weight > 0, "No voting power");
+        
+        proposal.hasVoted[msg.sender] = true;
+        
+        if (_support) {
+            proposal.forVotes += weight;
         } else {
-            proposal.againstVotes += voterBalance;
+            proposal.againstVotes += weight;
         }
         
-        emit VoteCast(proposalId, msg.sender, support, voterBalance);
+        emit VoteCast(_proposalId, msg.sender, _support, weight);
     }
     
-    // ============ View Functions ============
-    
-    /**
-     * @dev Returns current price index and last update time
-     */
-    function getPriceInfo() external view returns (uint256 index, uint256 lastUpdate) {
-        return (realEstatePriceIndex, lastPriceUpdate);
+    function executeProposal(uint256 _proposalId) external {
+        require(_proposalId < proposalCount, "Invalid proposal");
+        Proposal storage proposal = proposals[_proposalId];
+        
+        require(block.timestamp > proposal.endTime, "Voting not ended");
+        require(!proposal.executed, "Already executed");
+        
+        proposal.executed = true;
+        proposal.passed = proposal.forVotes > proposal.againstVotes;
+        
+        emit ProposalExecuted(_proposalId);
     }
     
-    /**
-     * @dev Returns city information
-     * @param cityId ID of the city
-     */
-    function getCityInfo(uint256 cityId) 
+    // View Functions
+    function getCityInfo(uint256 _cityId) 
         external 
         view 
-        returns (string memory name, uint256 priceIndex, uint256 weight, bool isActive) 
+        returns (string memory name, uint256 priceIndex, uint256 weight, bool isActive, uint256 lastUpdated) 
     {
-        CityData memory city = cities[cityId];
-        return (city.name, city.priceIndex, city.weight, city.isActive);
+        require(_cityId < cityCount, "Invalid city ID");
+        City storage city = cities[_cityId];
+        return (city.name, city.priceIndex, city.weight, city.isActive, city.lastUpdated);
     }
     
-    /**
-     * @dev Returns all active city IDs
-     */
-    function getActiveCities() external view returns (uint256[] memory) {
-        return activeCityIds;
-    }
-    
-    /**
-     * @dev Returns proposal information
-     * @param proposalId ID of the proposal
-     */
-    function getProposal(uint256 proposalId) 
+    function getProposalInfo(uint256 _proposalId) 
         external 
         view 
-        validProposal(proposalId)
         returns (
+            address proposer,
             string memory description,
             uint256 forVotes,
             uint256 againstVotes,
             uint256 startTime,
             uint256 endTime,
             bool executed,
-            address proposer
+            bool passed
         ) 
     {
-        Proposal memory proposal = proposals[proposalId];
+        require(_proposalId < proposalCount, "Invalid proposal");
+        Proposal storage proposal = proposals[_proposalId];
+        
         return (
+            proposal.proposer,
             proposal.description,
             proposal.forVotes,
             proposal.againstVotes,
             proposal.startTime,
             proposal.endTime,
             proposal.executed,
-            proposal.proposer
+            proposal.passed
         );
     }
     
-    // ============ Admin Functions ============
+    function getAllCities() external view returns (
+        string[] memory names,
+        uint256[] memory priceIndices,
+        uint256[] memory weights,
+        bool[] memory activeStates
+    ) {
+        names = new string[](cityCount);
+        priceIndices = new uint256[](cityCount);
+        weights = new uint256[](cityCount);
+        activeStates = new bool[](cityCount);
+        
+        for (uint256 i = 0; i < cityCount; i++) {
+            names[i] = cities[i].name;
+            priceIndices[i] = cities[i].priceIndex;
+            weights[i] = cities[i].weight;
+            activeStates[i] = cities[i].isActive;
+        }
+    }
     
-    /**
-     * @dev Pauses the contract
-     */
+    // Zero Revenue Validation Functions
+    function validateZeroRevenue() external view returns (bool) {
+        return zeroRevenueValidation["NO_FEES"] && 
+               zeroRevenueValidation["NO_PROFITS"] && 
+               zeroRevenueValidation["NO_REWARDS"] && 
+               zeroRevenueValidation["EDUCATIONAL_PURPOSE"];
+    }
+    
+    function getRevenueStructure() external pure returns (string memory) {
+        return "ZERO_REVENUE: No fees, no profits, no rewards. Educational purpose only.";
+    }
+    
+    function calculateTransactionFee(uint256) external pure returns (uint256) {
+        return 0; // Always zero fees
+    }
+    
+    function getProtocolRevenue() external pure returns (uint256) {
+        return 0; // Always zero protocol revenue
+    }
+    
+    // Admin Functions (Emergency only)
     function pause() external onlyOwner {
         _pause();
     }
     
-    /**
-     * @dev Unpauses the contract
-     */
     function unpause() external onlyOwner {
         _unpause();
     }
     
-    /**
-     * @dev Adds a new city for tracking
-     * @param cityId Unique city identifier
-     * @param name City name
-     * @param weight Weight in the overall index
-     */
-    function addCity(uint256 cityId, string memory name, uint256 weight) 
+    function updateCityWeight(uint256 _cityId, uint256 _newWeight) 
         external 
         onlyOwner 
     {
-        require(!cities[cityId].isActive, "GPRET: City already exists");
-        require(bytes(name).length > 0, "GPRET: Empty city name");
-        require(weight > 0, "GPRET: Invalid weight");
+        require(_cityId < cityCount, "Invalid city ID");
+        require(_newWeight > 0, "Invalid weight");
         
-        cities[cityId] = CityData({
-            name: name,
-            priceIndex: 1000 * 10**18, // Default starting index
-            weight: weight,
-            isActive: true
-        });
-        
-        activeCityIds.push(cityId);
-        
-        emit CityAdded(cityId, name, weight);
+        cities[_cityId].weight = _newWeight;
+        _updateGlobalIndex();
     }
     
-    // ============ Internal Functions ============
-    
-    /**
-     * @dev Initializes default cities
-     */
-    function _initializeCities() internal {
-        // Initialize 10 major cities with equal weight
-        string[10] memory cityNames = [
-            "New York", "London", "Tokyo", "Hong Kong", "Singapore",
-            "Paris", "Sydney", "Toronto", "Seoul", "Zurich"
-        ];
-        
-        for (uint256 i = 0; i < 10; i++) {
-            cities[i + 1] = CityData({
-                name: cityNames[i],
-                priceIndex: 1000 * 10**18,
-                weight: 10, // Equal weight of 10%
-                isActive: true
-            });
-            activeCityIds.push(i + 1);
-            
-            emit CityAdded(i + 1, cityNames[i], 10);
-        }
+    function toggleCityStatus(uint256 _cityId) external onlyOwner {
+        require(_cityId < cityCount, "Invalid city ID");
+        cities[_cityId].isActive = !cities[_cityId].isActive;
+        _updateGlobalIndex();
     }
     
-    /**
-     * @dev Override required by Solidity
-     */
-    function _beforeTokenTransfer(address from, address to, uint256 amount)
+    // Override required functions for OpenZeppelin v5
+    function _update(address from, address to, uint256 value)
         internal
-        whenNotPaused
         override
+        whenNotPaused
     {
-        super._beforeTokenTransfer(from, to, amount);
-    }
-    
-    // ============ Zero Revenue Guarantee ============
-    
-    /**
-     * @dev This function exists solely to make it explicit that this contract
-     * generates zero revenue and has no profit mechanism
-     */
-    function confirmZeroRevenue() external pure returns (string memory) {
-        return "This contract generates ZERO revenue and distributes NO profits. Educational purpose only.";
+        super._update(from, to, value);
     }
 }
